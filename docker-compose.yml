@@ -18,4 +18,5 @@ services:
       # These two mounts let host-level metrics remain host-level in the collector container.
       - /proc:/host/proc:ro
       - /:/hostfs:ro
-      - ./config/apps.example.json:/etc/obsy/apps.json:ro
+      # The source file is resolved on the host and is not copied into the image.
+      - ${OBSY_APPS_CONFIG_FILE:-./config/apps.json}:/etc/obsy/apps.json:ro

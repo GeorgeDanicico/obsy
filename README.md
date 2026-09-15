@@ -10,10 +10,11 @@ npm run dev
 ```
 
 Open `http://localhost:3000`.
+To load the repository's local example configuration, run `OBSY_APPS_CONFIG_PATH=./config/apps.json npm run dev`.
 
 ## Configure observed applications
 
-Set `OBSY_APPS_CONFIG` to a JSON array or mount a JSON file and set `OBSY_APPS_CONFIG_PATH`. The file uses this shape:
+Set `OBSY_APPS_CONFIG` to a JSON array or point `OBSY_APPS_CONFIG_PATH` at a JSON file. The file uses this shape:
 
 ```json
 [
@@ -31,10 +32,14 @@ Set `OBSY_APPS_CONFIG` to a JSON array or mount a JSON file and set `OBSY_APPS_C
 
 ## Run in Docker
 
-The image uses Next.js standalone output, a multi-stage build, Alpine Node, and a non-root runtime user. Copy `config/apps.example.json` to `config/apps.json`, adjust it, then:
+The image uses Next.js standalone output, a multi-stage build, Alpine Node, and a non-root runtime user. Application definitions are not included in the image: Docker ignores the `config/` directory during the build, and Compose mounts the file into `/etc/obsy/apps.json` at runtime.
+
+For a config file stored outside this repository, set `OBSY_APPS_CONFIG_FILE` to its host path:
 
 ```bash
-docker compose -f docker-compose.example.yml up --build
+OBSY_APPS_CONFIG_FILE=/opt/obsy/apps.json docker compose up --build
 ```
+
+If `OBSY_APPS_CONFIG_FILE` is omitted, Compose uses `./config/apps.json` as a local-development default. You can copy `config/apps.example.json` to that location and adjust it, or provide any other readable JSON file from the host.
 
 The Docker socket is mounted read-only so the collector can run `docker inspect` and `docker stats`. The example also mounts the host's `/proc` and `/` read-only so the resource cards measure the VPS rather than only the Obsy container. On a remote VPS, expose only port 3000 behind your existing reverse proxy and add authentication before making the dashboard public.

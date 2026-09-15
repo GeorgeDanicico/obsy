@@ -84,12 +84,6 @@ let previousNetworkSample: NetworkSample | undefined;
 
 const procRoot = process.env.OBSY_PROC_PATH ?? "/proc";
 
-const fallbackApps: MonitoredApp[] = [
-  { id: "web", name: "Web app", container: "my-web", port: 3000, accent: "violet" },
-  { id: "worker", name: "Background worker", container: "my-worker", port: 8080, accent: "orange" },
-  { id: "database", name: "Database", container: "postgres", port: 5432, accent: "blue" },
-];
-
 function numberOrZero(value: string | undefined) {
   const parsed = Number.parseFloat(value ?? "");
   return Number.isFinite(parsed) ? parsed : 0;
@@ -129,7 +123,7 @@ async function readConfiguredApps(): Promise<MonitoredApp[]> {
       const parsed = JSON.parse(inlineConfig);
       if (Array.isArray(parsed)) return parsed as MonitoredApp[];
     } catch {
-      // Fall through to the mounted file and built-in examples.
+      // Fall through to the mounted file.
     }
   }
 
@@ -140,10 +134,10 @@ async function readConfiguredApps(): Promise<MonitoredApp[]> {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) return parsed as MonitoredApp[];
   } catch {
-    // A missing config is valid for a first run.
+    // A missing or invalid config is valid for a first run.
   }
 
-  return fallbackApps;
+  return [];
 }
 
 function readCpuSample(): CpuSample {
