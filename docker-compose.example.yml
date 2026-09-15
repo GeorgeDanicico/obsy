@@ -1,0 +1,20 @@
+services:
+  obsy:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      # Set OBSY_APPS_CONFIG instead when you prefer a single environment variable.
+      OBSY_APPS_CONFIG_PATH: /etc/obsy/apps.json
+      OBSY_PROC_PATH: /host/proc
+      OBSY_DISK_PATH: /hostfs
+      OBSY_HOSTNAME: production-vps
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Read-only access is enough for docker inspect and docker stats.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # These two mounts let host-level metrics remain host-level in the collector container.
+      - /proc:/host/proc:ro
+      - /:/hostfs:ro
+      - ./config/apps.example.json:/etc/obsy/apps.json:ro

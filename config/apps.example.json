@@ -1,0 +1,15 @@
+[
+  {
+    "id": "web",
+    "name": "Web app",
+    "container": "my-web",
+    "port": 3000,
+    "healthUrl": "http://host.docker.internal:3000/health"
+  },
+  {
+    "id": "worker",
+    "name": "Background worker",
+    "container": "my-worker",
+    "port": 8080
+  }
+]

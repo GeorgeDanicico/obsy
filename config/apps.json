@@ -1,0 +1,16 @@
+[
+  {
+    "id": "expense-tracker",
+    "name": "Expense Tracker",
+    "container": "expense-tracker-web",
+    "port": 3000,
+    "accent": "violet"
+  },
+  {
+    "id": "investment",
+    "name": "Investment",
+    "container": "investment",
+    "port": 8080,
+    "accent": "orange"
+  }
+]
