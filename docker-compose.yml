@@ -1,8 +1,9 @@
 services:
   obsy:
     build: .
+    restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       # Set OBSY_APPS_CONFIG instead when you prefer a single environment variable.
       OBSY_APPS_CONFIG_PATH: /etc/obsy/apps.json
