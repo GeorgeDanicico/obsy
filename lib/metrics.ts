@@ -56,6 +56,15 @@ export type AppMetrics = MonitoredApp & {
   error?: string;
 };
 
+export type ProcessMetrics = {
+  pid: number;
+  name: string;
+  command: string;
+  cpuPercent: number;
+  memoryBytes: number;
+  memoryPercent: number;
+};
+
 export type DashboardMetrics = {
   generatedAt: string;
   hostname: string;
@@ -74,13 +83,17 @@ export type DashboardMetrics = {
     diskPercent: number;
   };
   apps: AppMetrics[];
+  processes: ProcessMetrics[];
 };
 
 type CpuSample = { idle: number; total: number };
 type NetworkSample = { rx: number; tx: number; at: number };
+type ProcessCpuSample = { cpuTime: number; startTime: number };
+type ProcessSample = { total: number; processes: Map<number, ProcessCpuSample> };
 
 let previousCpuSample: CpuSample | undefined;
 let previousNetworkSample: NetworkSample | undefined;
+let previousProcessSample: ProcessSample | undefined;
 
 const procRoot = process.env.OBSY_PROC_PATH ?? "/proc";
 
@@ -152,8 +165,7 @@ function readCpuSample(): CpuSample {
   }
 }
 
-function getCpuPercent() {
-  const current = readCpuSample();
+function getCpuPercent(current = readCpuSample()) {
   const previous = previousCpuSample;
   previousCpuSample = current;
   if (!previous) {
@@ -163,6 +175,113 @@ function getCpuPercent() {
   const idleDelta = current.idle - previous.idle;
   if (totalDelta <= 0) return 0;
   return Math.max(0, Math.min(100, ((totalDelta - idleDelta) / totalDelta) * 100));
+}
+
+function readProcessStat(pid: number) {
+  try {
+    const raw = fs.readFileSync(/* turbopackIgnore: true */ path.join(procRoot, String(pid), "stat"), "utf8").trim();
+    const match = raw.match(/^\d+ \((.*)\) [A-Z?] (.+)$/);
+    if (!match) return null;
+    const values = match[2].split(/\s+/).map(Number);
+    const cpuTime = (values[10] ?? 0) + (values[11] ?? 0);
+    const startTime = values[19] ?? 0;
+    if (!Number.isFinite(cpuTime) || !Number.isFinite(startTime)) return null;
+    return { name: match[1], cpuTime, startTime };
+  } catch {
+    return null;
+  }
+}
+
+function readProcessMemory(pid: number) {
+  try {
+    const status = fs.readFileSync(/* turbopackIgnore: true */ path.join(procRoot, String(pid), "status"), "utf8");
+    const match = status.match(/^VmRSS:\s+(\d+)\s+kB$/m);
+    return match ? Number.parseInt(match[1], 10) * 1024 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function readProcessCommand(pid: number, fallback: string) {
+  try {
+    const command = fs.readFileSync(/* turbopackIgnore: true */ path.join(procRoot, String(pid), "cmdline"), "utf8").replaceAll("\0", " ").trim();
+    return command || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function selectTopProcesses(processes: ProcessMetrics[]) {
+  const topByCpu = [...processes].sort((a, b) => b.cpuPercent - a.cpuPercent).slice(0, 8);
+  const topByMemory = [...processes].sort((a, b) => b.memoryBytes - a.memoryBytes).slice(0, 8);
+  return [...new Map([...topByCpu, ...topByMemory].map((process) => [process.pid, process])).values()];
+}
+
+async function readPsProcessMetrics(memoryTotalBytes: number) {
+  try {
+    const { stdout } = await execFileAsync("ps", ["-axo", "pid=,pcpu=,rss=,comm="], { timeout: 2500 });
+    const processes = stdout.split("\n").reduce<ProcessMetrics[]>((result, line) => {
+      const match = line.trim().match(/^(\d+)\s+([\d.]+)\s+(\d+)\s+(.+)$/);
+      if (!match) return result;
+      const memoryBytes = Number.parseInt(match[3], 10) * 1024;
+      result.push({
+        pid: Number.parseInt(match[1], 10),
+        name: match[4],
+        command: match[4],
+        cpuPercent: numberOrZero(match[2]),
+        memoryBytes,
+        memoryPercent: memoryTotalBytes ? (memoryBytes / memoryTotalBytes) * 100 : 0,
+      });
+      return result;
+    }, []);
+    return selectTopProcesses(processes);
+  } catch {
+    return [];
+  }
+}
+
+async function readProcessMetrics(cpuSample: CpuSample, memoryTotalBytes: number): Promise<ProcessMetrics[]> {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(/* turbopackIgnore: true */ procRoot, { withFileTypes: true });
+  } catch {
+    return readPsProcessMetrics(memoryTotalBytes);
+  }
+
+  const processes = entries.reduce<ProcessMetrics[]>((result, entry) => {
+    if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) return result;
+    const pid = Number.parseInt(entry.name, 10);
+    const stat = readProcessStat(pid);
+    if (!stat) return result;
+
+    const previous = previousProcessSample?.processes.get(pid);
+    const totalDelta = cpuSample.total - (previousProcessSample?.total ?? cpuSample.total);
+    const processDelta = previous && previous.startTime === stat.startTime ? stat.cpuTime - previous.cpuTime : 0;
+    const cpuPercent = totalDelta > 0
+      ? Math.max(0, (processDelta / totalDelta) * (os.cpus().length || 1) * 100)
+      : 0;
+    const memoryBytes = readProcessMemory(pid);
+
+    result.push({
+      pid,
+      name: stat.name,
+      command: readProcessCommand(pid, stat.name),
+      cpuPercent,
+      memoryBytes,
+      memoryPercent: memoryTotalBytes ? (memoryBytes / memoryTotalBytes) * 100 : 0,
+    });
+    return result;
+  }, []);
+
+  previousProcessSample = {
+    total: cpuSample.total,
+    processes: new Map(processes.map((process) => {
+      const stat = readProcessStat(process.pid);
+      return [process.pid, { cpuTime: stat?.cpuTime ?? 0, startTime: stat?.startTime ?? 0 }];
+    })),
+  };
+
+  return selectTopProcesses(processes);
 }
 
 function readNetworkTotals() {
@@ -328,7 +447,8 @@ async function getAppMetrics(app: MonitoredApp, stat: DockerStat | undefined, in
 
 export async function getDashboardMetrics(): Promise<DashboardMetrics> {
   const apps = await readConfiguredApps();
-  const cpuPercent = getCpuPercent();
+  const cpuSample = readCpuSample();
+  const cpuPercent = getCpuPercent(cpuSample);
   const networkRate = getNetworkRate();
   const memory = getMemoryUsage();
   const memoryTotalBytes = memory.total;
@@ -352,6 +472,7 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
   const appMetrics = dockerAvailable
     ? await Promise.all(apps.map((app) => getAppMetrics(app, dockerStats.get(app.container), inspectById.get(app.id) ?? null)))
     : apps.map((app) => createUnknownApp(app));
+  const processMetrics = await readProcessMetrics(cpuSample, memoryTotalBytes);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -371,5 +492,6 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
       diskPercent: disk.total ? (disk.used / disk.total) * 100 : 0,
     },
     apps: appMetrics,
+    processes: processMetrics,
   };
 }

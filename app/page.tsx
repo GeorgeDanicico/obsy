@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AppMetrics, DashboardMetrics } from "@/lib/metrics";
+import type { AppMetrics, DashboardMetrics, ProcessMetrics } from "@/lib/metrics";
 
-type Tab = "overview" | "apps";
+type Tab = "overview" | "apps" | "processes";
+type ProcessSort = "cpu" | "memory";
 type IconName = "grid" | "box" | "settings" | "help" | "server" | "cpu" | "memory" | "network" | "disk" | "refresh" | "arrow" | "external" | "check" | "alert" | "clock";
 
 const REFRESH_INTERVAL = 5000;
@@ -101,17 +102,28 @@ function AppRow({ app, onOpen }: { app: AppMetrics; onOpen: () => void }) {
   </button>;
 }
 
+function ProcessRow({ process, maxCpu, maxMemory }: { process: ProcessMetrics; maxCpu: number; maxMemory: number }) {
+  const cpuBar = maxCpu ? (process.cpuPercent / maxCpu) * 100 : 0;
+  const memoryBar = maxMemory ? (process.memoryBytes / maxMemory) * 100 : 0;
+  return <div className="process-row">
+    <div className="process-identity" title={process.command}><strong>{process.name}</strong><span>PID {process.pid} · {process.command}</span></div>
+    <div className="process-metric"><div className="process-value"><strong>{process.cpuPercent.toFixed(1)}%</strong><span>CPU</span></div><Progress tone="purple" value={cpuBar} /></div>
+    <div className="process-metric"><div className="process-value"><strong>{formatBytes(process.memoryBytes)}</strong><span>{formatPercent(process.memoryPercent)} RAM</span></div><Progress tone="green" value={memoryBar} /></div>
+    <span className="process-pid">{process.pid}</span>
+  </div>;
+}
+
 function EmptyNotice({ dockerAvailable }: { dockerAvailable: boolean }) {
   return <div className="notice"><div className="notice-icon"><Icon name={dockerAvailable ? "settings" : "server"} size={18} /></div><div><strong>{dockerAvailable ? "No apps configured yet" : "Host metrics are ready"}</strong><p>{dockerAvailable ? "Add containers to OBSY_APPS_CONFIG_PATH to start observing them." : "Connect the Docker socket to include container-level metrics and live checks."}</p></div></div>;
 }
 
-function Overview({ data, history, onSelectTab, onOpenApp }: { data: DashboardMetrics; history: DashboardMetrics[]; onSelectTab: () => void; onOpenApp: (id: string) => void }) {
+function Overview({ data, history, onSelectTab, onSelectProcesses, onOpenApp }: { data: DashboardMetrics; history: DashboardMetrics[]; onSelectTab: () => void; onSelectProcesses: () => void; onOpenApp: (id: string) => void }) {
   const { system } = data;
   const totalNetworkRate = system.networkRxBytesPerSecond + system.networkTxBytesPerSecond;
   const recentApps = data.apps.slice(0, 4);
   const liveCount = data.apps.filter((app) => app.status === "live").length;
   return <>
-    <div className="page-heading"><div><p className="eyebrow">Infrastructure</p><h1>VPS overview</h1><p className="subheading">A real-time pulse of your server and the workloads running on it.</p></div><div className="heading-actions"><div className="last-updated"><span className="pulse-dot" />Updated {timeAgo(data.generatedAt)}</div><button className="outline-button" onClick={onSelectTab} type="button">View applications <Icon name="arrow" size={15} /></button></div></div>
+    <div className="page-heading"><div><p className="eyebrow">Infrastructure</p><h1>VPS overview</h1><p className="subheading">A real-time pulse of your server and the workloads running on it.</p></div><div className="heading-actions"><div className="last-updated"><span className="pulse-dot" />Updated {timeAgo(data.generatedAt)}</div><button className="outline-button" onClick={onSelectProcesses} type="button">View processes <Icon name="arrow" size={15} /></button><button className="outline-button" onClick={onSelectTab} type="button">View applications <Icon name="arrow" size={15} /></button></div></div>
 
     <div className="metric-grid">
       <MetricCard icon="cpu" label="CPU usage" value={formatPercent(system.cpuPercent)} detail={`${system.cpuCores} vCPU cores · load ${system.loadAverage.toFixed(2)}`} series={history.map((item) => item.system.cpuPercent)} tone="blue" progress={system.cpuPercent} />
@@ -151,6 +163,21 @@ function Applications({ data, selectedId, onSelect }: { data: DashboardMetrics; 
   </>;
 }
 
+function Processes({ data }: { data: DashboardMetrics }) {
+  const [sortBy, setSortBy] = useState<ProcessSort>("cpu");
+  const processes = useMemo(() => [...data.processes].sort((a, b) => sortBy === "cpu" ? b.cpuPercent - a.cpuPercent : b.memoryBytes - a.memoryBytes), [data.processes, sortBy]);
+  const topCpu = data.processes.reduce<ProcessMetrics | undefined>((top, process) => !top || process.cpuPercent > top.cpuPercent ? process : top, undefined);
+  const topMemory = data.processes.reduce<ProcessMetrics | undefined>((top, process) => !top || process.memoryBytes > top.memoryBytes ? process : top, undefined);
+  const maxCpu = processes.reduce((max, process) => Math.max(max, process.cpuPercent), 0);
+  const maxMemory = processes.reduce((max, process) => Math.max(max, process.memoryBytes), 0);
+
+  return <>
+    <div className="page-heading"><div><p className="eyebrow">Host activity</p><h1>Processes</h1><p className="subheading">The processes using the most CPU time and memory on your VPS.</p></div><div className="heading-actions"><div className="last-updated"><span className="pulse-dot" />Updated {timeAgo(data.generatedAt)}</div></div></div>
+    <div className="process-summary"><div><span>Displayed processes</span><strong>{data.processes.length}</strong></div><div><span>Highest CPU</span><strong>{topCpu ? `${topCpu.cpuPercent.toFixed(1)}%` : "—"}</strong></div><div><span>Highest memory</span><strong>{topMemory ? formatBytes(topMemory.memoryBytes) : "—"}</strong></div><div><span>Refresh rate</span><strong>5 seconds</strong></div></div>
+    <section className="panel process-panel"><div className="panel-heading process-panel-heading"><div><h2>Top processes</h2><p>Live readings from the last polling interval</p></div><div aria-label="Sort processes" className="process-tabs" role="tablist"><button aria-selected={sortBy === "cpu"} className={sortBy === "cpu" ? "process-tab active" : "process-tab"} onClick={() => setSortBy("cpu")} role="tab" type="button">CPU usage</button><button aria-selected={sortBy === "memory"} className={sortBy === "memory" ? "process-tab active" : "process-tab"} onClick={() => setSortBy("memory")} role="tab" type="button">Memory usage</button></div></div>{processes.length ? <div className="process-table"><div className="process-table-header"><span>Process</span><span>CPU</span><span>Memory</span><span>PID</span></div>{processes.map((process) => <ProcessRow key={process.pid} maxCpu={maxCpu} maxMemory={maxMemory} process={process} />)}</div> : <div className="notice"><div className="notice-icon"><Icon name="server" size={18} /></div><div><strong>Process metrics are unavailable</strong><p>Obsy could not read the host process list. Make sure the host /proc filesystem is mounted and readable.</p></div></div>}</section>
+  </>;
+}
+
 export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [data, setData] = useState<DashboardMetrics | null>(null);
@@ -185,7 +212,7 @@ export default function Home() {
   const displayHistory = useMemo(() => history.length ? history : data ? [data] : [], [data, history]);
 
   return <div className="app-shell">
-    <aside className="sidebar"><div className="brand"><div className="brand-mark"><span /></div><span>obsy</span><small>beta</small></div><div className="sidebar-label">Workspace</div><nav className="main-nav" aria-label="Main navigation"><button className={activeTab === "overview" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("overview")} type="button"><Icon name="grid" size={18} />Overview</button><button className={activeTab === "apps" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("apps")} type="button"><Icon name="box" size={18} />Applications</button></nav><div className="sidebar-bottom"><button className="nav-item" type="button"><Icon name="settings" size={18} />Settings</button><button className="nav-item" type="button"><Icon name="help" size={18} />Help center</button><div className="sidebar-divider" /><div className="account"><div className="account-avatar">G</div><div><strong>George</strong><span>Administrator</span></div><span className="account-dots">•••</span></div></div></aside>
-    <main className="main-content"><header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>Production VPS</strong></div><div className="topbar-actions"><div className="server-chip"><span className="pulse-dot" />{data?.hostname ?? "production-vps"}</div><button aria-label="Refresh metrics" className={`icon-button ${isRefreshing ? "spinning" : ""}`} onClick={() => void refresh()} type="button"><Icon name="refresh" size={17} /></button><div className="top-avatar">G</div></div></header><div className="content-wrap">{error ? <div className="error-banner"><Icon name="alert" size={16} />{error}</div> : null}{data ? activeTab === "overview" ? <Overview data={data} history={displayHistory} onSelectTab={() => setActiveTab("apps")} onOpenApp={(id) => { setSelectedAppId(id); setActiveTab("apps"); }} /> : <Applications data={data} selectedId={selectedAppId} onSelect={setSelectedAppId} /> : <div className="loading-state"><div className="loading-mark"><span /></div><strong>Connecting to your VPS</strong><span>Collecting the first snapshot…</span></div>}</div></main>
+    <aside className="sidebar"><div className="brand"><div className="brand-mark"><span /></div><span>obsy</span><small>beta</small></div><div className="sidebar-label">Workspace</div><nav className="main-nav" aria-label="Main navigation"><button className={activeTab === "overview" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("overview")} type="button"><Icon name="grid" size={18} />Overview</button><button className={activeTab === "apps" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("apps")} type="button"><Icon name="box" size={18} />Applications</button><button className={activeTab === "processes" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("processes")} type="button"><Icon name="cpu" size={18} />Processes</button></nav><div className="sidebar-bottom"><button className="nav-item" type="button"><Icon name="settings" size={18} />Settings</button><button className="nav-item" type="button"><Icon name="help" size={18} />Help center</button><div className="sidebar-divider" /><div className="account"><div className="account-avatar">G</div><div><strong>George</strong><span>Administrator</span></div><span className="account-dots">•••</span></div></div></aside>
+    <main className="main-content"><header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>Production VPS</strong></div><div className="topbar-actions"><div className="server-chip"><span className="pulse-dot" />{data?.hostname ?? "production-vps"}</div><button aria-label="Refresh metrics" className={`icon-button ${isRefreshing ? "spinning" : ""}`} onClick={() => void refresh()} type="button"><Icon name="refresh" size={17} /></button><div className="top-avatar">G</div></div></header><div className="content-wrap">{error ? <div className="error-banner"><Icon name="alert" size={16} />{error}</div> : null}{data ? activeTab === "overview" ? <Overview data={data} history={displayHistory} onSelectProcesses={() => setActiveTab("processes")} onSelectTab={() => setActiveTab("apps")} onOpenApp={(id) => { setSelectedAppId(id); setActiveTab("apps"); }} /> : activeTab === "apps" ? <Applications data={data} selectedId={selectedAppId} onSelect={setSelectedAppId} /> : <Processes data={data} /> : <div className="loading-state"><div className="loading-mark"><span /></div><strong>Connecting to your VPS</strong><span>Collecting the first snapshot…</span></div>}</div></main>
   </div>;
 }

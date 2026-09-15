@@ -4,6 +4,10 @@ services:
     restart: unless-stopped
     ports:
       - "3001:3000"
+    # Match the host Docker socket's group so the non-root runtime user can query it.
+    # Override with DOCKER_GID when the host uses a different Docker group ID.
+    group_add:
+      - "${DOCKER_GID:-990}"
     environment:
       # Set OBSY_APPS_CONFIG instead when you prefer a single environment variable.
       OBSY_APPS_CONFIG_PATH: /etc/obsy/apps.json
