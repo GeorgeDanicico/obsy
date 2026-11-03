@@ -129,7 +129,7 @@ function parsePair(value: string | undefined) {
   return [parseHumanBytes(first), parseHumanBytes(second)] as const;
 }
 
-async function readConfiguredApps(): Promise<MonitoredApp[]> {
+export async function readConfiguredApps(): Promise<MonitoredApp[]> {
   const inlineConfig = process.env.OBSY_APPS_CONFIG;
   if (inlineConfig) {
     try {
