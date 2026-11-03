@@ -32,7 +32,7 @@ export const MAX_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 // Docker's own rule for container names, so a config value can never be read as a flag.
 const CONTAINER_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
 const APP_ID = /^[A-Za-z0-9_.-]{1,64}$/;
-const REQUEST_ID = /^[A-Za-z0-9_-]{1,64}$/;
+export const REQUEST_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const EVENT = /^[A-Za-z0-9_.:-]{1,64}$/;
 const RELATIVE = /^(\d{1,4})([mhd])$/;
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/;

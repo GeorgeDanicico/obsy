@@ -1,35 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { Icon, type IconName } from "@/app/components/icons";
+import { AppShell, type DashboardTab } from "@/app/components/shell";
+import { containerLogsHref } from "@/lib/logs/view/filters";
 import type { AppMetrics, DashboardMetrics, ProcessMetrics } from "@/lib/metrics";
 
-type Tab = "overview" | "apps" | "processes";
+type Tab = DashboardTab;
 type ProcessSort = "cpu" | "memory";
-type IconName = "grid" | "box" | "settings" | "help" | "server" | "cpu" | "memory" | "network" | "disk" | "refresh" | "arrow" | "external" | "check" | "alert" | "clock";
 
 const REFRESH_INTERVAL = 5000;
-
-const iconPaths: Record<IconName, React.ReactNode> = {
-  grid: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
-  box: <><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" /><path d="m4.3 7.6 7.7 4.3 7.7-4.3M12 12v9" /></>,
-  settings: <><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="m19.4 15 .1.1a2 2 0 0 1-2.8 2.8l-.1-.1a2 2 0 0 0-3.4 1.4v.3a2 2 0 0 1-4 0v-.2A2 2 0 0 0 5.8 18l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A2 2 0 0 0 1.6 12a2 2 0 0 1 2-2h.2A2 2 0 0 0 5.2 6.6l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A2 2 0 0 0 12 2.4a2 2 0 0 1 2 2v.2a2 2 0 0 0 3.4 1.4l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1A2 2 0 0 0 19.6 12a2 2 0 0 1 2 2 2 2 0 0 1-2.2 2Z" /></>,
-  help: <><circle cx="12" cy="12" r="9" /><path d="M9.7 9a2.35 2.35 0 1 1 3.9 1.8c-1 .9-1.6 1.2-1.6 2.7M12 17h.01" /></>,
-  server: <><rect x="3" y="4" width="18" height="6" rx="1.5" /><rect x="3" y="14" width="18" height="6" rx="1.5" /><path d="M7 7h.01M7 17h.01M11 7h6M11 17h6" /></>,
-  cpu: <><rect x="7" y="7" width="10" height="10" rx="1" /><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3M10 10h4v4h-4z" /></>,
-  memory: <><path d="M5 6h14v12H5zM2 9v6M22 9v6M8 9h2v3H8zM14 9h2v3h-2zM8 15h8" /></>,
-  network: <><rect x="3" y="14" width="6" height="6" rx="1" /><rect x="15" y="4" width="6" height="6" rx="1" /><path d="M9 17h3a3 3 0 0 0 3-3V7M12 7h3M12 7l2-2M12 7l2 2" /></>,
-  disk: <><path d="M4 4h16v16H4zM8 4v5h8V4M8 16h8" /><circle cx="12" cy="18" r="1" /></>,
-  refresh: <><path d="M20 11a8 8 0 0 0-14.9-3L3 11M3 5v6h6M4 13a8 8 0 0 0 14.9 3L21 13M21 19v-6h-6" /></>,
-  arrow: <><path d="M5 12h14M13 6l6 6-6 6" /></>,
-  external: <><path d="M14 4h6v6M20 4l-9 9" /><path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" /></>,
-  check: <><path d="m5 12 4 4L19 6" /></>,
-  alert: <><path d="M12 3 2.8 19a1 1 0 0 0 .9 1.5h16.6a1 1 0 0 0 .9-1.5L12 3Z" /><path d="M12 9v4M12 17h.01" /></>,
-  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
-};
-
-function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
-  return <svg aria-hidden="true" className="icon" fill="none" height={size} viewBox="0 0 24 24" width={size} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7">{iconPaths[name]}</svg>;
-}
 
 function formatBytes(bytes: number, digits = 1) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -148,7 +129,7 @@ function Overview({ data, history, onSelectTab, onSelectProcesses, onOpenApp }: 
 }
 
 function AppDetails({ app }: { app: AppMetrics }) {
-  return <aside className="panel app-details"><div className="panel-heading"><div><h2>Container details</h2><p>Live snapshot</p></div><span className="details-kebab">•••</span></div><div className="details-identity"><div className={`app-avatar avatar-${app.accent ?? "blue"}`}><Icon name="box" size={20} /></div><div><strong>{app.name}</strong><span>{app.container}</span></div><StatusBadge status={app.status} /></div><div className="detail-stat-grid"><div><span>CPU</span><strong>{formatPercent(app.cpuPercent)}</strong><Progress tone="purple" value={app.cpuPercent} /></div><div><span>Memory</span><strong>{app.memoryBytes ? formatBytes(app.memoryBytes) : "—"}</strong><Progress tone="green" value={app.memoryPercent} /></div><div><span>Network in</span><strong>{formatBytes(app.networkRxBytes)}</strong></div><div><span>Network out</span><strong>{formatBytes(app.networkTxBytes)}</strong></div><div><span>Block read</span><strong>{formatBytes(app.blockReadBytes)}</strong></div><div><span>Block write</span><strong>{formatBytes(app.blockWriteBytes)}</strong></div></div><div className="detail-meta"><div><span>Image</span><strong title={app.image}>{app.image}</strong></div><div><span>Uptime</span><strong>{formatDuration(app.uptimeSeconds)}</strong></div><div><span>Restarts</span><strong>{app.restartCount}</strong></div><div><span>Health</span><strong className={app.health === "healthy" ? "text-green" : "text-muted"}>{app.health}</strong></div></div>{app.error ? <div className="detail-error"><Icon name="alert" size={15} />{app.error}</div> : null}</aside>;
+  return <aside className="panel app-details"><div className="panel-heading"><div><h2>Container details</h2><p>Live snapshot</p></div><span className="details-kebab">•••</span></div><div className="details-identity"><div className={`app-avatar avatar-${app.accent ?? "blue"}`}><Icon name="box" size={20} /></div><div><strong>{app.name}</strong><span>{app.container}</span></div><StatusBadge status={app.status} /></div><div className="detail-stat-grid"><div><span>CPU</span><strong>{formatPercent(app.cpuPercent)}</strong><Progress tone="purple" value={app.cpuPercent} /></div><div><span>Memory</span><strong>{app.memoryBytes ? formatBytes(app.memoryBytes) : "—"}</strong><Progress tone="green" value={app.memoryPercent} /></div><div><span>Network in</span><strong>{formatBytes(app.networkRxBytes)}</strong></div><div><span>Network out</span><strong>{formatBytes(app.networkTxBytes)}</strong></div><div><span>Block read</span><strong>{formatBytes(app.blockReadBytes)}</strong></div><div><span>Block write</span><strong>{formatBytes(app.blockWriteBytes)}</strong></div></div><div className="detail-meta"><div><span>Image</span><strong title={app.image}>{app.image}</strong></div><div><span>Uptime</span><strong>{formatDuration(app.uptimeSeconds)}</strong></div><div><span>Restarts</span><strong>{app.restartCount}</strong></div><div><span>Health</span><strong className={app.health === "healthy" ? "text-green" : "text-muted"}>{app.health}</strong></div></div><Link className="outline-button details-logs-link" href={containerLogsHref(app.id)}><Icon name="logs" size={15} />Logs<Icon name="arrow" size={15} /></Link>{app.error ? <div className="detail-error"><Icon name="alert" size={15} />{app.error}</div> : null}</aside>;
 }
 
 function Applications({ data, selectedId, onSelect }: { data: DashboardMetrics; selectedId: string; onSelect: (id: string) => void }) {
@@ -211,8 +192,7 @@ export default function Home() {
 
   const displayHistory = useMemo(() => history.length ? history : data ? [data] : [], [data, history]);
 
-  return <div className="app-shell">
-    <aside className="sidebar"><div className="brand"><div className="brand-mark"><span /></div><span>obsy</span><small>beta</small></div><div className="sidebar-label">Workspace</div><nav className="main-nav" aria-label="Main navigation"><button className={activeTab === "overview" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("overview")} type="button"><Icon name="grid" size={18} />Overview</button><button className={activeTab === "apps" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("apps")} type="button"><Icon name="box" size={18} />Applications</button><button className={activeTab === "processes" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("processes")} type="button"><Icon name="cpu" size={18} />Processes</button></nav><div className="sidebar-bottom"><button className="nav-item" type="button"><Icon name="settings" size={18} />Settings</button><button className="nav-item" type="button"><Icon name="help" size={18} />Help center</button><div className="sidebar-divider" /><div className="account"><div className="account-avatar">G</div><div><strong>George</strong><span>Administrator</span></div><span className="account-dots">•••</span></div></div></aside>
-    <main className="main-content"><header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>Production VPS</strong></div><div className="topbar-actions"><div className="server-chip"><span className="pulse-dot" />{data?.hostname ?? "production-vps"}</div><button aria-label="Refresh metrics" className={`icon-button ${isRefreshing ? "spinning" : ""}`} onClick={() => void refresh()} type="button"><Icon name="refresh" size={17} /></button><div className="top-avatar">G</div></div></header><div className="content-wrap">{error ? <div className="error-banner"><Icon name="alert" size={16} />{error}</div> : null}{data ? activeTab === "overview" ? <Overview data={data} history={displayHistory} onSelectProcesses={() => setActiveTab("processes")} onSelectTab={() => setActiveTab("apps")} onOpenApp={(id) => { setSelectedAppId(id); setActiveTab("apps"); }} /> : activeTab === "apps" ? <Applications data={data} selectedId={selectedAppId} onSelect={setSelectedAppId} /> : <Processes data={data} /> : <div className="loading-state"><div className="loading-mark"><span /></div><strong>Connecting to your VPS</strong><span>Collecting the first snapshot…</span></div>}</div></main>
-  </div>;
+  return <AppShell active={activeTab} hostname={data?.hostname} onRefresh={() => void refresh()} onSelectTab={setActiveTab} refreshing={isRefreshing}>
+    {error ? <div className="error-banner"><Icon name="alert" size={16} />{error}</div> : null}{data ? activeTab === "overview" ? <Overview data={data} history={displayHistory} onSelectProcesses={() => setActiveTab("processes")} onSelectTab={() => setActiveTab("apps")} onOpenApp={(id) => { setSelectedAppId(id); setActiveTab("apps"); }} /> : activeTab === "apps" ? <Applications data={data} selectedId={selectedAppId} onSelect={setSelectedAppId} /> : <Processes data={data} /> : <div className="loading-state"><div className="loading-mark"><span /></div><strong>Connecting to your VPS</strong><span>Collecting the first snapshot…</span></div>}
+  </AppShell>;
 }
