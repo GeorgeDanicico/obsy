@@ -6,7 +6,7 @@ import { dockerLine, fakeSpawn, waitFor, type FakeProcess } from "./testing";
 const now = Date.parse("2026-11-03T12:00:00.000Z");
 const apps = [
   { id: "expense-tracker", name: "Expense Tracker", container: "expense-tracker-web" },
-  { id: "expense-tracker-worker", name: "Worker", container: "expense-tracker-web-worker" },
+  { id: "expense-tracker-worker", name: "Worker", container: "expense-tracker-worker" },
 ];
 
 function service(onSpawn: (child: FakeProcess) => void, options: Parameters<typeof createLogService>[0] = {}, spawnOptions: { exitOnKill?: boolean } = {}) {
@@ -123,7 +123,7 @@ describe("request-id search across containers", () => {
     const body = await json(await logs.handleRead(get("/api/logs?requestId=3fK9xQ2mBv0a")));
     expect(calls.map((call) => call.args)).toEqual([
       ["logs", "--timestamps", "--since", "2026-10-31T12:00:00.000Z", "expense-tracker-web"],
-      ["logs", "--timestamps", "--since", "2026-10-31T12:00:00.000Z", "expense-tracker-web-worker"],
+      ["logs", "--timestamps", "--since", "2026-10-31T12:00:00.000Z", "expense-tracker-worker"],
     ]);
     expect(body.lines.map((line) => [line.container, line.event])).toEqual([
       ["expense-tracker-worker", "tick"],
@@ -137,7 +137,7 @@ describe("request-id search across containers", () => {
   it("still answers when one container is missing", async () => {
     const { logs } = service((child) => {
       if (web(child)) child.write("stdout", [dockerLine("2026-11-02T10:00:01Z", { event: "request", requestId: "tick-abc" })]);
-      else child.write("stderr", ["Error response from daemon: No such container: expense-tracker-web-worker"]);
+      else child.write("stderr", ["Error response from daemon: No such container: expense-tracker-worker"]);
       void child.close(web(child) ? 0 : 1);
     });
     const response = await logs.handleRead(get("/api/logs?requestId=tick-abc"));

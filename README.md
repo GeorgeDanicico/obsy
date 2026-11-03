@@ -35,7 +35,7 @@ Set `OBSY_APPS_CONFIG` to a JSON array or point `OBSY_APPS_CONFIG_PATH` at a JSO
 `GET /api/logs?container=<app id>` returns a container's recent log lines (newest first) by running `docker logs` through the same read-only socket, and `GET /api/logs/stream?container=<app id>` follows them as Server-Sent Events. `container` is always an app `id` from the config above, never a container name. `GET /api/logs?requestId=<id>` without `container` searches every configured container over the last 3 days, so give each container you want searched its own entry (for example a worker next to its web app):
 
 ```json
-{ "id": "expense-tracker-worker", "name": "Expense Tracker worker", "container": "expense-tracker-web-worker" }
+{ "id": "expense-tracker-worker", "name": "Expense Tracker worker", "container": "expense-tracker-worker" }
 ```
 
 Other parameters: `since` (`15m`, `1h`, `3d`, `today`, or an ISO time with a zone; default `1h`, at most 7 days back), `until` (ISO time), `level` (lowest of `debug`, `info`, `warn`, `error`), `q` (text, at most 100 characters), `requestId`, `event`, and `limit` (default 500, at most 2000). At most 2 reads run at once (a few more wait, the rest get 429), each for at most 10 seconds, and at most 3 live tails, each for at most 15 minutes. Log lines carry user ids: keep Obsy bound to localhost or behind authentication.
