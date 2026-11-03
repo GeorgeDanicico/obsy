@@ -215,3 +215,22 @@ a.nav-item { text-decoration: none; }
 .span-track span { background: var(--purple); border-radius: inherit; display: block; height: 100%; }
 .span-ms { color: #596373; text-align: right; }
 @media (max-width: 760px) { .logs-field select { min-width: 0; width: 100%; }.logs-field { flex: 1 1 100%; }.logs-range { height: auto; }.logs-panel-heading { align-items: flex-start; flex-direction: column; gap: 12px; } }
+.text-bad { color: #c4473d !important; }
+.log-metrics { border-top: 1px solid #f0f1f3; margin-top: 20px; padding-top: 18px; }
+.log-metrics-title { align-items: baseline; display: flex; justify-content: space-between; margin-bottom: 14px; }
+.log-metrics-title strong { font-size: 11px; font-weight: 650; }
+.log-metrics-title span { color: var(--muted-2); font-size: 9px; }
+.log-metrics-grid { border-bottom: 0; padding-bottom: 0; }
+.log-metrics-hint { color: var(--muted); font-size: 10px; line-height: 1.5; margin: 12px 0 0; }
+.route-metrics { margin-bottom: 14px; padding: 18px; }
+.route-metrics .panel-heading { margin-bottom: 14px; }
+.route-metrics-summary { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); margin-bottom: 16px; }
+.route-metrics-summary span { color: var(--muted-2); display: block; font-size: 9px; margin-bottom: 5px; }
+.route-metrics-summary strong { display: block; font-size: 14px; font-variant-numeric: tabular-nums; font-weight: 650; }
+.route-table { overflow-x: auto; }
+.route-table-header, .route-table-row { display: grid; font-size: 11px; gap: 12px; grid-template-columns: minmax(180px, 1fr) 80px 72px 72px 52px 52px; min-width: 560px; }
+.route-table-header { border-bottom: 1px solid #f0f1f3; color: var(--muted-2); font-size: 9px; padding: 0 0 8px; text-transform: uppercase; }
+.route-table-row { font-variant-numeric: tabular-nums; padding: 9px 0; }
+.route-table-row + .route-table-row { border-top: 1px solid #f0f1f3; }
+.route-table-header span:not(:first-child), .route-table-row span:not(:first-child) { text-align: right; }
+.route-name { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

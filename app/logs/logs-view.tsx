@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Icon } from "@/app/components/icons";
+import { RouteMetrics } from "@/app/components/log-metrics";
 import type { LogApp } from "@/lib/logs/view/apps";
 import type { Failure } from "@/lib/logs/view/api";
 import {
@@ -170,6 +171,8 @@ export function LogsView({ apps }: { apps: LogApp[] }) {
 
     {!validation.ok ? <div className="error-banner logs-error" role="alert"><Icon name="alert" size={16} /><div><strong>{validation.error}</strong></div></div> : null}
     {allApps ? <div className="logs-note">Searching every app{filters.since ? "" : " over the last 3 days"} for this request id. Pick an app to narrow it down.</div> : null}
+
+    {validation.ok && validation.mode === "app" && !live ? <RouteMetrics container={filters.container} /> : null}
 
     {live ? <LivePanel
       appName={appName ?? filters.container}
