@@ -1,4 +1,5 @@
 import { buildFollowArgs, buildReadArgs, defaultSpawn, startDockerLogs, stopProcess, type LogsProcess, type SpawnLogs } from "./docker";
+import { createSharedCache } from "./cache";
 import { createLimiter, type Limiter } from "./limits";
 import {
   LineSplitter,
@@ -12,8 +13,18 @@ import {
   type LogLine,
   type LogStream,
 } from "./lines";
+import {
+  heartbeatAt,
+  METRICS_WINDOW_MS,
+  METRICS_WINDOW_MINUTES,
+  MetricsAccumulator,
+  TICK_INTERVAL_MS,
+  type AppLogMetrics,
+  type MetricsResponse,
+  type MetricsSnapshot,
+} from "./metrics";
 import { readConfiguredApps } from "../metrics";
-import { parseReadQuery, parseTailQuery, type ConfiguredApp, type LogSource } from "./params";
+import { logSources, parseReadQuery, parseTailQuery, toRfc3339, type ConfiguredApp, type LogSource } from "./params";
 
 export type LogsResponse = {
   /** Newest first. */
@@ -36,17 +47,26 @@ export type LogServiceOptions = {
   maxQueuedReads?: number;
   readQueueWaitMs?: number;
   readTimeoutMs?: number;
+  /** How long a metrics read is reused. */
+  metricsCacheMs?: number;
   /** Concurrent live tails, across all clients. */
   maxTails?: number;
   tailMaxMs?: number;
   heartbeatMs?: number;
 };
 
+type ScanOutcome =
+  | { ok: true; timedOut: boolean; scanned: number }
+  | { ok: false; status: 404 | 503; error: string };
+
 type ReadOutcome =
   | { ok: true; entries: LogEntry[]; truncated: boolean; scanned: number }
   | { ok: false; status: 404 | 503; error: string };
 
 class BusyError extends Error {}
+
+/** A metrics read that could not finish; the message is safe to show. */
+class MetricsReadError extends Error {}
 
 const jsonHeaders = { "Cache-Control": "no-store, max-age=0" };
 
@@ -102,14 +122,17 @@ export function createLogService(options: LogServiceOptions = {}) {
   let seq = 0;
   const nextSeq = () => (seq += 1);
 
-  async function readSource(source: LogSource, since: string, until: string | undefined, filter: LogFilter, limit: number, signal?: AbortSignal): Promise<ReadOutcome> {
+  /**
+   * One non-streaming `docker logs` read through the read limiter: every parsed line goes to
+   * `onEntry`, nothing is kept here. The one place reads (and metrics) are run.
+   */
+  async function scanSource(source: LogSource, since: string, until: string | undefined, onEntry: (entry: LogEntry) => void, signal?: AbortSignal): Promise<ScanOutcome> {
     const release = await reads.acquire(signal);
     if (!release) throw new BusyError();
 
     try {
       const child = startDockerLogs(spawn, buildReadArgs(source.container, since, until));
-      return await new Promise<ReadOutcome>((resolve) => {
-        const newest = new NewestEntries(limit);
+      return await new Promise<ScanOutcome>((resolve) => {
         const cliMessages: string[] = [];
         let scanned = 0;
         let timedOut = false;
@@ -122,7 +145,7 @@ export function createLogService(options: LogServiceOptions = {}) {
         const onAbort = () => stopProcess(child);
         signal?.addEventListener("abort", onAbort, { once: true });
 
-        const finish = (outcome: ReadOutcome) => {
+        const finish = (outcome: ScanOutcome) => {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
@@ -137,8 +160,7 @@ export function createLogService(options: LogServiceOptions = {}) {
           nextSeq,
           (entry) => {
             scanned += 1;
-            // `raw` is only needed for matching; dropping it halves what a kept JSON line holds.
-            if (mightMatch(entry.raw, filter) && matchesFilter(entry, filter)) newest.add({ ...entry, raw: "" });
+            onEntry(entry);
           },
           (text) => {
             if (cliMessages.length < 5) cliMessages.push(text);
@@ -153,13 +175,84 @@ export function createLogService(options: LogServiceOptions = {}) {
               : { ok: false, status: 503, error: cliDetail(cliMessages) });
             return;
           }
-          const entries = newest.result();
-          finish({ ok: true, entries, truncated: timedOut || newest.matched > limit, scanned });
+          finish({ ok: true, timedOut, scanned });
         });
       });
     } finally {
       release();
     }
+  }
+
+  async function readSource(source: LogSource, since: string, until: string | undefined, filter: LogFilter, limit: number, signal?: AbortSignal): Promise<ReadOutcome> {
+    const newest = new NewestEntries(limit);
+    const outcome = await scanSource(
+      source,
+      since,
+      until,
+      (entry) => {
+        // `raw` is only needed for matching; dropping it halves what a kept JSON line holds.
+        if (mightMatch(entry.raw, filter) && matchesFilter(entry, filter)) newest.add({ ...entry, raw: "" });
+      },
+      signal,
+    );
+    if (!outcome.ok) return outcome;
+    return { ok: true, entries: newest.result(), truncated: outcome.timedOut || newest.matched > limit, scanned: outcome.scanned };
+  }
+
+  // Containers seen writing `request` lines. A quiet 15 minutes then still shows zeros, not nothing.
+  const requestApps = new Set<string>();
+  const metricsCache = createSharedCache<MetricsSnapshot>({ ttlMs: options.metricsCacheMs ?? 30_000, now });
+
+  /** One `docker logs --since 15m` read of an app, aggregated; the cache keeps it for 30 s. */
+  function metricsFor(source: LogSource): Promise<MetricsSnapshot> {
+    return metricsCache.get(source.container, async () => {
+      const acc = new MetricsAccumulator();
+      let outcome: ScanOutcome;
+      try {
+        outcome = await scanSource(source, toRfc3339(now() - METRICS_WINDOW_MS), undefined, (entry) => acc.add(entry));
+      } catch (error) {
+        if (error instanceof BusyError) throw new MetricsReadError("Too many log reads at once");
+        throw new MetricsReadError("Logs are temporarily unavailable");
+      }
+      if (!outcome.ok) throw new MetricsReadError(outcome.error);
+
+      if (acc.sawRequests) requestApps.add(source.container);
+      return {
+        partial: outcome.timedOut,
+        requests: acc.requestMetrics() ?? (requestApps.has(source.container) ? acc.emptyRequestMetrics() : null),
+        worker: acc.lastTickMs !== null ? { lastTickMs: acc.lastTickMs } : null,
+      };
+    });
+  }
+
+  /** A worker that was silent for the whole window leaves no `tick` line to recognise it by. */
+  const looksLikeWorker = (source: LogSource) => /worker/i.test(source.id) || /worker/i.test(source.container);
+
+  /** `GET /api/logs/metrics`: every configured app, or one with `container`. */
+  async function handleMetrics(request: Request): Promise<Response> {
+    if (request.method !== "GET") return methodNotAllowed();
+    const params = new URL(request.url).searchParams;
+    let sources = logSources(await readApps());
+    const id = params.get("container");
+    if (id) {
+      sources = sources.filter((source) => source.id === id);
+      if (!sources.length) return jsonError(400, "container must be the id of a configured app");
+    }
+
+    const apps = await Promise.all(
+      sources.map(async (source): Promise<AppLogMetrics> => {
+        try {
+          const snapshot = await metricsFor(source);
+          const silentWorker = !snapshot.worker && !snapshot.requests && looksLikeWorker(source);
+          const worker = snapshot.worker ?? (silentWorker ? { lastTickMs: null } : null);
+          return { id: source.id, ok: true, partial: snapshot.partial, requests: snapshot.requests, heartbeat: worker ? heartbeatAt(worker.lastTickMs, now()) : null };
+        } catch (error) {
+          return { id: source.id, ok: false, error: error instanceof MetricsReadError ? error.message : "Metrics are unavailable" };
+        }
+      }),
+    );
+    const body: MetricsResponse = { generatedAt: toRfc3339(now()), windowMinutes: METRICS_WINDOW_MINUTES, tickIntervalMs: TICK_INTERVAL_MS, apps };
+    return Response.json(body, { headers: jsonHeaders });
   }
 
   /** `GET /api/logs` */
@@ -330,6 +423,7 @@ export function createLogService(options: LogServiceOptions = {}) {
   return {
     handleRead,
     handleStream,
+    handleMetrics,
     /** For tests and diagnostics. */
     stats: () => ({ reads: reads.active, queuedReads: reads.waiting, tails: tails.active }),
   };
