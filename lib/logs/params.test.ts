@@ -6,7 +6,7 @@ import { fakeSpawn } from "./testing";
 const now = Date.parse("2026-11-03T12:00:00.000Z");
 const apps = [
   { id: "expense-tracker", container: "expense-tracker-web" },
-  { id: "expense-tracker-worker", container: "expense-tracker-web-worker" },
+  { id: "expense-tracker-worker", container: "expense-tracker-worker" },
 ];
 
 const read = (query: string, configured = apps) => parseReadQuery(new URLSearchParams(query), configured, now);
@@ -87,7 +87,7 @@ describe("filters and limit", () => {
   it("parses a tail query and ignores the time window", () => {
     expect(parseTailQuery(new URLSearchParams("container=expense-tracker-worker&level=error&since=bogus"), apps)).toEqual({
       ok: true,
-      query: { source: { id: "expense-tracker-worker", container: "expense-tracker-web-worker" }, filter: { level: "error" } },
+      query: { source: { id: "expense-tracker-worker", container: "expense-tracker-worker" }, filter: { level: "error" } },
     });
     expect(parseTailQuery(new URLSearchParams("requestId=abc"), apps)).toEqual({ ok: false, error: "container is required" });
   });

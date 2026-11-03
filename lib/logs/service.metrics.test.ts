@@ -6,7 +6,7 @@ import { dockerLine, fakeSpawn, waitFor, type FakeProcess } from "./testing";
 const start = Date.parse("2026-11-03T12:00:00.000Z");
 const apps = [
   { id: "expense-tracker", name: "Expense Tracker", container: "expense-tracker-web" },
-  { id: "expense-tracker-worker", name: "Worker", container: "expense-tracker-web-worker" },
+  { id: "expense-tracker-worker", name: "Worker", container: "expense-tracker-worker" },
   { id: "db", name: "Database", container: "postgres" },
 ];
 
@@ -43,7 +43,7 @@ function fakeApps(child: FakeProcess) {
       req("2026-11-03T11:56:00Z", "/api/expenses", 429, 1),
       dockerLine("2026-11-03T11:40:00Z", "   ▲ Next.js"),
     ]);
-  } else if (container === "expense-tracker-web-worker") {
+  } else if (container === "expense-tracker-worker") {
     child.write("stdout", [tick("2026-11-03T11:59:00Z"), tick("2026-11-03T11:59:30Z")]);
   } else {
     child.write("stdout", [dockerLine("2026-11-03T11:00:00Z", "LOG:  database system is ready")]);
@@ -60,7 +60,7 @@ describe("GET /api/logs/metrics", () => {
 
     expect(calls.map((call) => call.args)).toEqual([
       ["logs", "--timestamps", "--since", "2026-11-03T11:45:00.000Z", "expense-tracker-web"],
-      ["logs", "--timestamps", "--since", "2026-11-03T11:45:00.000Z", "expense-tracker-web-worker"],
+      ["logs", "--timestamps", "--since", "2026-11-03T11:45:00.000Z", "expense-tracker-worker"],
       ["logs", "--timestamps", "--since", "2026-11-03T11:45:00.000Z", "postgres"],
     ]);
     expect(calls.every((call) => call.command === "docker" && call.shell === false)).toBe(true);
@@ -211,8 +211,8 @@ describe("metrics failures", () => {
     const { logs } = service((child) => {
       if (containerOf(child) === "postgres") {
         child.emit("error", new Error("spawn docker ENOENT"));
-      } else if (containerOf(child) === "expense-tracker-web-worker") {
-        child.write("stderr", ["Error response from daemon: No such container: expense-tracker-web-worker"]);
+      } else if (containerOf(child) === "expense-tracker-worker") {
+        child.write("stderr", ["Error response from daemon: No such container: expense-tracker-worker"]);
         void child.close(1);
       } else {
         child.write("stdout", [req("2026-11-03T11:59:00Z", "/api/x", 200, 5)]);
