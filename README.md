@@ -30,6 +30,12 @@ Set `OBSY_APPS_CONFIG` to a JSON array or point `OBSY_APPS_CONFIG_PATH` at a JSO
 
 `healthUrl` is optional. When present, Obsy performs a short HTTP probe and marks a running container as degraded when the endpoint does not respond successfully. Without it, Docker's healthcheck (when configured) is used; a running container without a healthcheck is treated as live.
 
+## Restart containers
+
+The container details panel on the Applications tab has a **Restart container** button. It calls `POST /api/apps/<id>/restart`, which runs `docker restart` on the container configured for that app id; arbitrary container names are never accepted. Requests must carry the `x-obsy-action: restart` header, which stops other websites from triggering restarts through a plain cross-site form post.
+
+Set `OBSY_DISABLE_RESTART=true` to turn the action off; the button is then disabled and the endpoint answers 403.
+
 ## Run in Docker
 
 The image uses Next.js standalone output, a multi-stage build, Alpine Node, and a non-root runtime user. Application definitions are not included in the image: Docker ignores the `config/` directory during the build, and Compose mounts the file into `/etc/obsy/apps.json` at runtime.
@@ -42,4 +48,4 @@ OBSY_APPS_CONFIG_FILE=/opt/obsy/apps.json docker compose up --build
 
 If `OBSY_APPS_CONFIG_FILE` is omitted, Compose uses `./config/apps.json` as a local-development default. You can copy `config/apps.example.json` to that location and adjust it, or provide any other readable JSON file from the host.
 
-The Docker socket is mounted read-only so the collector can run `docker inspect` and `docker stats`. The example also mounts the host's `/proc` and `/` read-only so the resource cards measure the VPS rather than only the Obsy container. On a remote VPS, expose only port 3000 behind your existing reverse proxy and add authentication before making the dashboard public.
+The Docker socket is mounted so the collector can run `docker inspect`, `docker stats` and `docker restart`. The `:ro` flag does not restrict what the Docker API allows, so treat access to Obsy as control over Docker. The example also mounts the host's `/proc` and `/` read-only so the resource cards measure the VPS rather than only the Obsy container. On a remote VPS, expose only port 3000 behind your existing reverse proxy and add authentication before making the dashboard public.

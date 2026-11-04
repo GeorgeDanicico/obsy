@@ -5,7 +5,7 @@ import type { AppMetrics, DashboardMetrics, ProcessMetrics } from "@/lib/metrics
 
 type Tab = "overview" | "apps" | "processes";
 type ProcessSort = "cpu" | "memory";
-type IconName = "grid" | "box" | "settings" | "help" | "server" | "cpu" | "memory" | "network" | "disk" | "refresh" | "arrow" | "external" | "check" | "alert" | "clock";
+type IconName = "grid" | "box" | "settings" |"server" | "cpu" | "memory" | "network" | "disk" | "refresh" | "arrow" | "external" | "check" | "alert" | "clock";
 
 const REFRESH_INTERVAL = 5000;
 
@@ -13,7 +13,6 @@ const iconPaths: Record<IconName, React.ReactNode> = {
   grid: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
   box: <><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" /><path d="m4.3 7.6 7.7 4.3 7.7-4.3M12 12v9" /></>,
   settings: <><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="m19.4 15 .1.1a2 2 0 0 1-2.8 2.8l-.1-.1a2 2 0 0 0-3.4 1.4v.3a2 2 0 0 1-4 0v-.2A2 2 0 0 0 5.8 18l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A2 2 0 0 0 1.6 12a2 2 0 0 1 2-2h.2A2 2 0 0 0 5.2 6.6l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A2 2 0 0 0 12 2.4a2 2 0 0 1 2 2v.2a2 2 0 0 0 3.4 1.4l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1A2 2 0 0 0 19.6 12a2 2 0 0 1 2 2 2 2 0 0 1-2.2 2Z" /></>,
-  help: <><circle cx="12" cy="12" r="9" /><path d="M9.7 9a2.35 2.35 0 1 1 3.9 1.8c-1 .9-1.6 1.2-1.6 2.7M12 17h.01" /></>,
   server: <><rect x="3" y="4" width="18" height="6" rx="1.5" /><rect x="3" y="14" width="18" height="6" rx="1.5" /><path d="M7 7h.01M7 17h.01M11 7h6M11 17h6" /></>,
   cpu: <><rect x="7" y="7" width="10" height="10" rx="1" /><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3M10 10h4v4h-4z" /></>,
   memory: <><path d="M5 6h14v12H5zM2 9v6M22 9v6M8 9h2v3H8zM14 9h2v3h-2zM8 15h8" /></>,
@@ -147,11 +146,42 @@ function Overview({ data, history, onSelectTab, onSelectProcesses, onOpenApp }: 
   </>;
 }
 
-function AppDetails({ app }: { app: AppMetrics }) {
-  return <aside className="panel app-details"><div className="panel-heading"><div><h2>Container details</h2><p>Live snapshot</p></div><span className="details-kebab">•••</span></div><div className="details-identity"><div className={`app-avatar avatar-${app.accent ?? "blue"}`}><Icon name="box" size={20} /></div><div><strong>{app.name}</strong><span>{app.container}</span></div><StatusBadge status={app.status} /></div><div className="detail-stat-grid"><div><span>CPU</span><strong>{formatPercent(app.cpuPercent)}</strong><Progress tone="purple" value={app.cpuPercent} /></div><div><span>Memory</span><strong>{app.memoryBytes ? formatBytes(app.memoryBytes) : "—"}</strong><Progress tone="green" value={app.memoryPercent} /></div><div><span>Network in</span><strong>{formatBytes(app.networkRxBytes)}</strong></div><div><span>Network out</span><strong>{formatBytes(app.networkTxBytes)}</strong></div><div><span>Block read</span><strong>{formatBytes(app.blockReadBytes)}</strong></div><div><span>Block write</span><strong>{formatBytes(app.blockWriteBytes)}</strong></div></div><div className="detail-meta"><div><span>Image</span><strong title={app.image}>{app.image}</strong></div><div><span>Uptime</span><strong>{formatDuration(app.uptimeSeconds)}</strong></div><div><span>Restarts</span><strong>{app.restartCount}</strong></div><div><span>Health</span><strong className={app.health === "healthy" ? "text-green" : "text-muted"}>{app.health}</strong></div></div>{app.error ? <div className="detail-error"><Icon name="alert" size={15} />{app.error}</div> : null}</aside>;
+type RestartPhase = "idle" | "confirm" | "restarting";
+
+function RestartControl({ app, enabled, onRestarted }: { app: AppMetrics; enabled: boolean; onRestarted: () => void }) {
+  const [phase, setPhase] = useState<RestartPhase>("idle");
+  const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const unavailable = !enabled ? "Restarts are disabled on this server" : app.status === "unknown" ? app.error ?? "Container is unavailable" : "";
+
+  async function restart() {
+    setPhase("restarting");
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/apps/${encodeURIComponent(app.id)}/restart`, { method: "POST", headers: { "x-obsy-action": "restart" }, cache: "no-store" });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Restart failed");
+      setMessage({ tone: "ok", text: `${app.container} restarted` });
+      onRestarted();
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Restart failed" });
+    } finally {
+      setPhase("idle");
+    }
+  }
+
+  return <div className="restart-control">
+    {phase === "confirm"
+      ? <div className="restart-confirm"><span>Restart <strong>{app.container}</strong>? It will be briefly unavailable.</span><div><button className="outline-button" onClick={() => setPhase("idle")} type="button">Cancel</button><button className="danger-button" onClick={() => void restart()} type="button">Restart</button></div></div>
+      : <button className={`outline-button restart-button ${phase === "restarting" ? "spinning" : ""}`} disabled={Boolean(unavailable) || phase === "restarting"} onClick={() => setPhase("confirm")} title={unavailable || undefined} type="button"><Icon name="refresh" size={15} />{phase === "restarting" ? "Restarting…" : "Restart container"}</button>}
+    {message ? <div className={message.tone === "ok" ? "restart-message text-green" : "detail-error"}><Icon name={message.tone === "ok" ? "check" : "alert"} size={15} />{message.text}</div> : null}
+  </div>;
 }
 
-function Applications({ data, selectedId, onSelect }: { data: DashboardMetrics; selectedId: string; onSelect: (id: string) => void }) {
+function AppDetails({ app, restartEnabled, onRestarted }: { app: AppMetrics; restartEnabled: boolean; onRestarted: () => void }) {
+  return <aside className="panel app-details"><div className="panel-heading"><div><h2>Container details</h2><p>Live snapshot</p></div><span className="details-kebab">•••</span></div><div className="details-identity"><div className={`app-avatar avatar-${app.accent ?? "blue"}`}><Icon name="box" size={20} /></div><div><strong>{app.name}</strong><span>{app.container}</span></div><StatusBadge status={app.status} /></div><div className="detail-stat-grid"><div><span>CPU</span><strong>{formatPercent(app.cpuPercent)}</strong><Progress tone="purple" value={app.cpuPercent} /></div><div><span>Memory</span><strong>{app.memoryBytes ? formatBytes(app.memoryBytes) : "—"}</strong><Progress tone="green" value={app.memoryPercent} /></div><div><span>Network in</span><strong>{formatBytes(app.networkRxBytes)}</strong></div><div><span>Network out</span><strong>{formatBytes(app.networkTxBytes)}</strong></div><div><span>Block read</span><strong>{formatBytes(app.blockReadBytes)}</strong></div><div><span>Block write</span><strong>{formatBytes(app.blockWriteBytes)}</strong></div></div><div className="detail-meta"><div><span>Image</span><strong title={app.image}>{app.image}</strong></div><div><span>Uptime</span><strong>{formatDuration(app.uptimeSeconds)}</strong></div><div><span>Restarts</span><strong>{app.restartCount}</strong></div><div><span>Health</span><strong className={app.health === "healthy" ? "text-green" : "text-muted"}>{app.health}</strong></div></div>{app.error ? <div className="detail-error"><Icon name="alert" size={15} />{app.error}</div> : null}<RestartControl app={app} enabled={restartEnabled} onRestarted={onRestarted} /></aside>;
+}
+
+function Applications({ data, selectedId, onSelect, onRestarted }: { data: DashboardMetrics; selectedId: string; onSelect: (id: string) => void; onRestarted: () => void }) {
   const selectedApp = data.apps.find((app) => app.id === selectedId) ?? data.apps[0];
   const liveCount = data.apps.filter((app) => app.status === "live").length;
   const cpuTotal = data.apps.reduce((total, app) => total + app.cpuPercent, 0);
@@ -159,7 +189,7 @@ function Applications({ data, selectedId, onSelect }: { data: DashboardMetrics; 
     <div className="page-heading"><div><p className="eyebrow">Workloads</p><h1>Applications</h1><p className="subheading">Monitor the Docker containers that power your services.</p></div><div className="heading-actions"><div className="config-hint"><Icon name="settings" size={15} />Configured externally</div><div className="last-updated"><span className="pulse-dot" />Updated {timeAgo(data.generatedAt)}</div></div></div>
     <div className="app-summary"><div><span>Observed apps</span><strong>{data.apps.length}</strong></div><div><span>Reporting live</span><strong className="text-green">{liveCount}</strong></div><div><span>Combined CPU</span><strong>{formatPercent(cpuTotal)}</strong></div><div><span>Docker engine</span><strong className={data.dockerAvailable ? "text-green" : "text-muted"}>{data.dockerAvailable ? "Connected" : "Unavailable"}</strong></div></div>
     {!data.dockerAvailable ? <EmptyNotice dockerAvailable={false} /> : null}
-    {data.apps.length ? <div className="applications-layout"><section className="panel all-apps"><div className="panel-heading"><div><h2>All applications</h2><p>Auto-refreshing every 5 seconds</p></div><span className="app-count">{data.apps.length} total</span></div><div className="app-list">{data.apps.map((app) => <AppRow key={app.id} app={app} onOpen={() => onSelect(app.id)} />)}</div></section>{selectedApp ? <AppDetails app={selectedApp} /> : null}</div> : null}
+    {data.apps.length ? <div className="applications-layout"><section className="panel all-apps"><div className="panel-heading"><div><h2>All applications</h2><p>Auto-refreshing every 5 seconds</p></div><span className="app-count">{data.apps.length} total</span></div><div className="app-list">{data.apps.map((app) => <AppRow key={app.id} app={app} onOpen={() => onSelect(app.id)} />)}</div></section>{selectedApp ? <AppDetails app={selectedApp} key={selectedApp.id} onRestarted={onRestarted} restartEnabled={data.restartEnabled} /> : null}</div> : null}
   </>;
 }
 
@@ -212,7 +242,7 @@ export default function Home() {
   const displayHistory = useMemo(() => history.length ? history : data ? [data] : [], [data, history]);
 
   return <div className="app-shell">
-    <aside className="sidebar"><div className="brand"><div className="brand-mark"><span /></div><span>obsy</span><small>beta</small></div><div className="sidebar-label">Workspace</div><nav className="main-nav" aria-label="Main navigation"><button className={activeTab === "overview" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("overview")} type="button"><Icon name="grid" size={18} />Overview</button><button className={activeTab === "apps" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("apps")} type="button"><Icon name="box" size={18} />Applications</button><button className={activeTab === "processes" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("processes")} type="button"><Icon name="cpu" size={18} />Processes</button></nav><div className="sidebar-bottom"><button className="nav-item" type="button"><Icon name="settings" size={18} />Settings</button><button className="nav-item" type="button"><Icon name="help" size={18} />Help center</button><div className="sidebar-divider" /><div className="account"><div className="account-avatar">G</div><div><strong>George</strong><span>Administrator</span></div><span className="account-dots">•••</span></div></div></aside>
-    <main className="main-content"><header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>Production VPS</strong></div><div className="topbar-actions"><div className="server-chip"><span className="pulse-dot" />{data?.hostname ?? "production-vps"}</div><button aria-label="Refresh metrics" className={`icon-button ${isRefreshing ? "spinning" : ""}`} onClick={() => void refresh()} type="button"><Icon name="refresh" size={17} /></button><div className="top-avatar">G</div></div></header><div className="content-wrap">{error ? <div className="error-banner"><Icon name="alert" size={16} />{error}</div> : null}{data ? activeTab === "overview" ? <Overview data={data} history={displayHistory} onSelectProcesses={() => setActiveTab("processes")} onSelectTab={() => setActiveTab("apps")} onOpenApp={(id) => { setSelectedAppId(id); setActiveTab("apps"); }} /> : activeTab === "apps" ? <Applications data={data} selectedId={selectedAppId} onSelect={setSelectedAppId} /> : <Processes data={data} /> : <div className="loading-state"><div className="loading-mark"><span /></div><strong>Connecting to your VPS</strong><span>Collecting the first snapshot…</span></div>}</div></main>
+    <aside className="sidebar"><div className="brand"><div className="brand-mark"><span /></div><span>obsy</span><small>beta</small></div><div className="sidebar-label">Workspace</div><nav className="main-nav" aria-label="Main navigation"><button className={activeTab === "overview" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("overview")} type="button"><Icon name="grid" size={18} />Overview</button><button className={activeTab === "apps" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("apps")} type="button"><Icon name="box" size={18} />Applications</button><button className={activeTab === "processes" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("processes")} type="button"><Icon name="cpu" size={18} />Processes</button></nav></aside>
+    <main className="main-content"><header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>Production VPS</strong></div><div className="topbar-actions"><div className="server-chip"><span className="pulse-dot" />{data?.hostname ?? "production-vps"}</div><button aria-label="Refresh metrics" className={`icon-button ${isRefreshing ? "spinning" : ""}`} onClick={() => void refresh()} type="button"><Icon name="refresh" size={17} /></button><div className="top-avatar">G</div></div></header><div className="content-wrap">{error ? <div className="error-banner"><Icon name="alert" size={16} />{error}</div> : null}{data ? activeTab === "overview" ? <Overview data={data} history={displayHistory} onSelectProcesses={() => setActiveTab("processes")} onSelectTab={() => setActiveTab("apps")} onOpenApp={(id) => { setSelectedAppId(id); setActiveTab("apps"); }} /> : activeTab === "apps" ? <Applications data={data} selectedId={selectedAppId} onSelect={setSelectedAppId} onRestarted={() => void refresh()} /> : <Processes data={data} /> : <div className="loading-state"><div className="loading-mark"><span /></div><strong>Connecting to your VPS</strong><span>Collecting the first snapshot…</span></div>}</div></main>
   </div>;
 }
