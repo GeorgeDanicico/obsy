@@ -17,7 +17,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      # Read-only access is enough for docker inspect and docker stats.
+      # Obsy runs docker inspect/stats and, unless OBSY_DISABLE_RESTART=true, docker restart.
+      # Note: :ro on a socket does not limit Docker API access; anyone reaching the socket controls Docker.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # These two mounts let host-level metrics remain host-level in the collector container.
       - /proc:/host/proc:ro

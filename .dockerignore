@@ -6,3 +6,5 @@ Dockerfile
 docker-compose.yml
 README.md
 npm-debug.log*
+# Application definitions are supplied at container runtime through a bind mount.
+config/
