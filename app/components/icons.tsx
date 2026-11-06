@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
 
-export type IconName = "grid" | "box" | "settings" | "help" | "server" | "cpu" | "memory" | "network" | "disk" | "refresh" | "arrow" | "external" | "check" | "alert" | "clock" | "logs";
+export type IconName = "grid" | "box" | "settings" | "server" | "cpu" | "memory" | "network" | "disk" | "refresh" | "arrow" | "external" | "check" | "alert" | "clock" | "logs";
 
 const iconPaths: Record<IconName, ReactNode> = {
   grid: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
   box: <><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" /><path d="m4.3 7.6 7.7 4.3 7.7-4.3M12 12v9" /></>,
   settings: <><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="m19.4 15 .1.1a2 2 0 0 1-2.8 2.8l-.1-.1a2 2 0 0 0-3.4 1.4v.3a2 2 0 0 1-4 0v-.2A2 2 0 0 0 5.8 18l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A2 2 0 0 0 1.6 12a2 2 0 0 1 2-2h.2A2 2 0 0 0 5.2 6.6l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A2 2 0 0 0 12 2.4a2 2 0 0 1 2 2v.2a2 2 0 0 0 3.4 1.4l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1A2 2 0 0 0 19.6 12a2 2 0 0 1 2 2 2 2 0 0 1-2.2 2Z" /></>,
-  help: <><circle cx="12" cy="12" r="9" /><path d="M9.7 9a2.35 2.35 0 1 1 3.9 1.8c-1 .9-1.6 1.2-1.6 2.7M12 17h.01" /></>,
   server: <><rect x="3" y="4" width="18" height="6" rx="1.5" /><rect x="3" y="14" width="18" height="6" rx="1.5" /><path d="M7 7h.01M7 17h.01M11 7h6M11 17h6" /></>,
   cpu: <><rect x="7" y="7" width="10" height="10" rx="1" /><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3M10 10h4v4h-4z" /></>,
   memory: <><path d="M5 6h14v12H5zM2 9v6M22 9v6M8 9h2v3H8zM14 9h2v3h-2zM8 15h8" /></>,
