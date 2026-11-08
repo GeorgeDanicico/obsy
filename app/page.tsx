@@ -129,11 +129,42 @@ function Overview({ data, history, onSelectTab, onSelectProcesses, onOpenApp }: 
   </>;
 }
 
-function AppDetails({ app, logMetrics }: { app: AppMetrics; logMetrics: MetricsState }) {
-  return <aside className="panel app-details"><div className="panel-heading"><div><h2>Container details</h2><p>Live snapshot</p></div><span className="details-kebab">•••</span></div><div className="details-identity"><div className={`app-avatar avatar-${app.accent ?? "blue"}`}><Icon name="box" size={20} /></div><div><strong>{app.name}</strong><span>{app.container}</span></div><StatusBadge status={app.status} /></div><div className="detail-stat-grid"><div><span>CPU</span><strong>{formatPercent(app.cpuPercent)}</strong><Progress tone="purple" value={app.cpuPercent} /></div><div><span>Memory</span><strong>{app.memoryBytes ? formatBytes(app.memoryBytes) : "—"}</strong><Progress tone="green" value={app.memoryPercent} /></div><div><span>Network in</span><strong>{formatBytes(app.networkRxBytes)}</strong></div><div><span>Network out</span><strong>{formatBytes(app.networkTxBytes)}</strong></div><div><span>Block read</span><strong>{formatBytes(app.blockReadBytes)}</strong></div><div><span>Block write</span><strong>{formatBytes(app.blockWriteBytes)}</strong></div></div><div className="detail-meta"><div><span>Image</span><strong title={app.image}>{app.image}</strong></div><div><span>Uptime</span><strong>{formatDuration(app.uptimeSeconds)}</strong></div><div><span>Restarts</span><strong>{app.restartCount}</strong></div><div><span>Health</span><strong className={app.health === "healthy" ? "text-green" : "text-muted"}>{app.health}</strong></div></div><CardLogMetrics appId={app.id} state={logMetrics} /><Link className="outline-button details-logs-link" href={containerLogsHref(app.id)}><Icon name="logs" size={15} />Logs<Icon name="arrow" size={15} /></Link>{app.error ? <div className="detail-error"><Icon name="alert" size={15} />{app.error}</div> : null}</aside>;
+type RestartPhase = "idle" | "confirm" | "restarting";
+
+function RestartControl({ app, enabled, onRestarted }: { app: AppMetrics; enabled: boolean; onRestarted: () => void }) {
+  const [phase, setPhase] = useState<RestartPhase>("idle");
+  const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const unavailable = !enabled ? "Restarts are disabled on this server" : app.status === "unknown" ? app.error ?? "Container is unavailable" : "";
+
+  async function restart() {
+    setPhase("restarting");
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/apps/${encodeURIComponent(app.id)}/restart`, { method: "POST", headers: { "x-obsy-action": "restart" }, cache: "no-store" });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Restart failed");
+      setMessage({ tone: "ok", text: `${app.container} restarted` });
+      onRestarted();
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Restart failed" });
+    } finally {
+      setPhase("idle");
+    }
+  }
+
+  return <div className="restart-control">
+    {phase === "confirm"
+      ? <div className="restart-confirm"><span>Restart <strong>{app.container}</strong>? It will be briefly unavailable.</span><div><button className="outline-button" onClick={() => setPhase("idle")} type="button">Cancel</button><button className="danger-button" onClick={() => void restart()} type="button">Restart</button></div></div>
+      : <button className={`outline-button restart-button ${phase === "restarting" ? "spinning" : ""}`} disabled={Boolean(unavailable) || phase === "restarting"} onClick={() => setPhase("confirm")} title={unavailable || undefined} type="button"><Icon name="refresh" size={15} />{phase === "restarting" ? "Restarting…" : "Restart container"}</button>}
+    {message ? <div className={message.tone === "ok" ? "restart-message text-green" : "detail-error"}><Icon name={message.tone === "ok" ? "check" : "alert"} size={15} />{message.text}</div> : null}
+  </div>;
 }
 
-function Applications({ data, selectedId, onSelect }: { data: DashboardMetrics; selectedId: string; onSelect: (id: string) => void }) {
+function AppDetails({ app, logMetrics, restartEnabled, onRestarted }: { app: AppMetrics; logMetrics: MetricsState; restartEnabled: boolean; onRestarted: () => void }) {
+  return <aside className="panel app-details"><div className="panel-heading"><div><h2>Container details</h2><p>Live snapshot</p></div><span className="details-kebab">•••</span></div><div className="details-identity"><div className={`app-avatar avatar-${app.accent ?? "blue"}`}><Icon name="box" size={20} /></div><div><strong>{app.name}</strong><span>{app.container}</span></div><StatusBadge status={app.status} /></div><div className="detail-stat-grid"><div><span>CPU</span><strong>{formatPercent(app.cpuPercent)}</strong><Progress tone="purple" value={app.cpuPercent} /></div><div><span>Memory</span><strong>{app.memoryBytes ? formatBytes(app.memoryBytes) : "—"}</strong><Progress tone="green" value={app.memoryPercent} /></div><div><span>Network in</span><strong>{formatBytes(app.networkRxBytes)}</strong></div><div><span>Network out</span><strong>{formatBytes(app.networkTxBytes)}</strong></div><div><span>Block read</span><strong>{formatBytes(app.blockReadBytes)}</strong></div><div><span>Block write</span><strong>{formatBytes(app.blockWriteBytes)}</strong></div></div><div className="detail-meta"><div><span>Image</span><strong title={app.image}>{app.image}</strong></div><div><span>Uptime</span><strong>{formatDuration(app.uptimeSeconds)}</strong></div><div><span>Restarts</span><strong>{app.restartCount}</strong></div><div><span>Health</span><strong className={app.health === "healthy" ? "text-green" : "text-muted"}>{app.health}</strong></div></div><CardLogMetrics appId={app.id} state={logMetrics} /><Link className="outline-button details-logs-link" href={containerLogsHref(app.id)}><Icon name="logs" size={15} />Logs<Icon name="arrow" size={15} /></Link>{app.error ? <div className="detail-error"><Icon name="alert" size={15} />{app.error}</div> : null}<RestartControl app={app} enabled={restartEnabled} onRestarted={onRestarted} /></aside>;
+}
+
+function Applications({ data, selectedId, onSelect, onRestarted }: { data: DashboardMetrics; selectedId: string; onSelect: (id: string) => void; onRestarted: () => void }) {
   const selectedApp = data.apps.find((app) => app.id === selectedId) ?? data.apps[0];
   const liveCount = data.apps.filter((app) => app.status === "live").length;
   const cpuTotal = data.apps.reduce((total, app) => total + app.cpuPercent, 0);
@@ -142,7 +173,7 @@ function Applications({ data, selectedId, onSelect }: { data: DashboardMetrics; 
     <div className="page-heading"><div><p className="eyebrow">Workloads</p><h1>Applications</h1><p className="subheading">Monitor the Docker containers that power your services.</p></div><div className="heading-actions"><div className="config-hint"><Icon name="settings" size={15} />Configured externally</div><div className="last-updated"><span className="pulse-dot" />Updated {timeAgo(data.generatedAt)}</div></div></div>
     <div className="app-summary"><div><span>Observed apps</span><strong>{data.apps.length}</strong></div><div><span>Reporting live</span><strong className="text-green">{liveCount}</strong></div><div><span>Combined CPU</span><strong>{formatPercent(cpuTotal)}</strong></div><div><span>Docker engine</span><strong className={data.dockerAvailable ? "text-green" : "text-muted"}>{data.dockerAvailable ? "Connected" : "Unavailable"}</strong></div></div>
     {!data.dockerAvailable ? <EmptyNotice dockerAvailable={false} /> : null}
-    {data.apps.length ? <div className="applications-layout"><section className="panel all-apps"><div className="panel-heading"><div><h2>All applications</h2><p>Auto-refreshing every 5 seconds</p></div><span className="app-count">{data.apps.length} total</span></div><div className="app-list">{data.apps.map((app) => <AppRow key={app.id} app={app} onOpen={() => onSelect(app.id)} />)}</div></section>{selectedApp ? <AppDetails app={selectedApp} logMetrics={logMetrics} /> : null}</div> : null}
+    {data.apps.length ? <div className="applications-layout"><section className="panel all-apps"><div className="panel-heading"><div><h2>All applications</h2><p>Auto-refreshing every 5 seconds</p></div><span className="app-count">{data.apps.length} total</span></div><div className="app-list">{data.apps.map((app) => <AppRow key={app.id} app={app} onOpen={() => onSelect(app.id)} />)}</div></section>{selectedApp ? <AppDetails app={selectedApp} key={selectedApp.id} logMetrics={logMetrics} onRestarted={onRestarted} restartEnabled={data.restartEnabled} /> : null}</div> : null}
   </>;
 }
 
@@ -195,6 +226,6 @@ export default function Home() {
   const displayHistory = useMemo(() => history.length ? history : data ? [data] : [], [data, history]);
 
   return <AppShell active={activeTab} hostname={data?.hostname} onRefresh={() => void refresh()} onSelectTab={setActiveTab} refreshing={isRefreshing}>
-    {error ? <div className="error-banner"><Icon name="alert" size={16} />{error}</div> : null}{data ? activeTab === "overview" ? <Overview data={data} history={displayHistory} onSelectProcesses={() => setActiveTab("processes")} onSelectTab={() => setActiveTab("apps")} onOpenApp={(id) => { setSelectedAppId(id); setActiveTab("apps"); }} /> : activeTab === "apps" ? <Applications data={data} selectedId={selectedAppId} onSelect={setSelectedAppId} /> : <Processes data={data} /> : <div className="loading-state"><div className="loading-mark"><span /></div><strong>Connecting to your VPS</strong><span>Collecting the first snapshot…</span></div>}
+    {error ? <div className="error-banner"><Icon name="alert" size={16} />{error}</div> : null}{data ? activeTab === "overview" ? <Overview data={data} history={displayHistory} onSelectProcesses={() => setActiveTab("processes")} onSelectTab={() => setActiveTab("apps")} onOpenApp={(id) => { setSelectedAppId(id); setActiveTab("apps"); }} /> : activeTab === "apps" ? <Applications data={data} selectedId={selectedAppId} onSelect={setSelectedAppId} onRestarted={() => void refresh()} /> : <Processes data={data} /> : <div className="loading-state"><div className="loading-mark"><span /></div><strong>Connecting to your VPS</strong><span>Collecting the first snapshot…</span></div>}
   </AppShell>;
 }

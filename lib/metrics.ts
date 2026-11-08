@@ -69,6 +69,7 @@ export type DashboardMetrics = {
   generatedAt: string;
   hostname: string;
   dockerAvailable: boolean;
+  restartEnabled: boolean;
   system: {
     cpuPercent: number;
     cpuCores: number;
@@ -445,6 +446,40 @@ async function getAppMetrics(app: MonitoredApp, stat: DockerStat | undefined, in
   } satisfies AppMetrics;
 }
 
+export type RestartResult =
+  | { ok: true; app: MonitoredApp }
+  | { ok: false; status: 403 | 404 | 500 | 503; error: string };
+
+export function isRestartEnabled() {
+  return process.env.OBSY_DISABLE_RESTART !== "true";
+}
+
+/**
+ * Restarts a container by its configured app id. Only containers listed in the
+ * apps config can be restarted; a raw container name from the client is never used.
+ */
+export async function restartApp(id: string): Promise<RestartResult> {
+  if (!isRestartEnabled()) return { ok: false, status: 403, error: "Container restarts are disabled" };
+
+  const app = (await readConfiguredApps()).find((candidate) => candidate.id === id);
+  if (!app) return { ok: false, status: 404, error: "Application is not configured" };
+
+  try {
+    await execFileAsync("docker", ["version", "--format", "{{.Server.Version}}"], { timeout: 2500 });
+  } catch {
+    return { ok: false, status: 503, error: "Docker is not available" };
+  }
+
+  try {
+    // `docker restart` waits up to 10s for a graceful stop before killing the container.
+    await execFileAsync("docker", ["restart", "--", app.container], { timeout: 30000 });
+    return { ok: true, app };
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr?.trim();
+    return { ok: false, status: 500, error: stderr || "Docker could not restart the container" };
+  }
+}
+
 export async function getDashboardMetrics(): Promise<DashboardMetrics> {
   const apps = await readConfiguredApps();
   const cpuSample = readCpuSample();
@@ -478,6 +513,7 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
     generatedAt: new Date().toISOString(),
     hostname: process.env.OBSY_HOSTNAME ?? os.hostname(),
     dockerAvailable,
+    restartEnabled: isRestartEnabled(),
     system: {
       cpuPercent,
       cpuCores: os.cpus().length,
